@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width,initial-scale=1" />
+	<title>Foto Battle</title>
+		<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+	<!-- Dekorácie: bočné závesy -->
+	<img class="curtain curtain-left" src="./doplnky/lavy_zaves.png" alt="" aria-hidden="true" />
+	<img class="curtain curtain-right" src="./doplnky/pravy_zaves.png" alt="" aria-hidden="true" />
+
+	<main>
+		<div id="grid" aria-label="Hracia mriežka 30 polí"></div>
+		<section id="teachers">
+			<div class="teacher active" data-index="0">
+				<div class="teacher-header">
+					<span class="teacher-name" aria-label="Meno učiteľa 1">SEŤKA</span>
+				</div>
+				<div class="score" data-score>0</div>
+				<!-- Ovládanie skóre je dostupné cez klávesy 1/2/3/4 -->
+			</div>
+			<!-- Extra pole #31 medzi učiteľmi -->
+			<div id="extraCellSlot" aria-label="Pole 31"></div>
+			<div class="teacher" data-index="1">
+				<div class="teacher-header">
+					<span class="teacher-name" aria-label="Meno učiteľa 2">GABKA</span>
+				</div>
+				<div class="score" data-score>0</div>
+				<!-- Ovládanie skóre je dostupné cez klávesy 1/2/3/4 -->
+			</div>
+		</section>
+				<div id="liveRegion" aria-live="polite" style="position:absolute; left:-9999px; top:-9999px;">Ready</div>
+	</main>
+	<div id="modal" role="dialog" aria-modal="true" aria-labelledby="studentName">
+		<div id="modalContent">
+			<div id="difficultyBadge" class="difficulty-badge" aria-hidden="true"></div>
+			<div id="studentName" class="hiddenName"></div>
+			<img id="studentPhoto" alt="Foto žiaka" />
+		</div>
+	</div>
+	<!-- Fullscreen score overlay for add/subtract animations -->
+	<div id="scoreOverlay" aria-hidden="true"><div class="overlay-text"></div></div>
+		<button id="fullscreenFloatBtn" aria-label="Fullscreen" title="Fullscreen" style="position:fixed; right:.6rem; bottom:.6rem; z-index:1500; background:rgba(67,183,73,0.15); color:#fff; padding:.5rem .7rem; font-size:.7rem; border-radius:.5rem; backdrop-filter:blur(4px); box-shadow:0 2px 6px rgba(0,0,0,.3); opacity:.35; transition:.25s;">
+			⛶
+		</button>
+	<script>
+	(function(){
+		// In-memory state
+		const state = {
+			students: [], // {name:string, number:number, url:string, difficulty:1|2|3}
+			cells: Array.from({length:31}, (_,i)=>({ number:i+1, used:false, student:null })),
+			activeTeacher:0,
+			teachers:[{name:'SEŤKA', score:0},{name:'GABKA', score:0}],
+			currentCell:null,
+			modalStep:0 // 0: pred fotkou (ukáž obtiažnosť); 1: ukáž fotku; 2: ukáž meno; potom zavri
+		};
+
+		const gridEl = document.getElementById('grid');
+		const modalEl = document.getElementById('modal');
+		const studentNameEl = document.getElementById('studentName');
+		const studentPhotoEl = document.getElementById('studentPhoto');
+		const difficultyBadgeEl = document.getElementById('difficultyBadge');
+	const teacherContainer = document.getElementById('teachers');
+	const scoreOverlay = document.getElementById('scoreOverlay');
+
+		// Build single cell element (reusable for grid and extra slot)
+		function buildCellElement(cell){
+			const d = document.createElement('div');
+			let diffClass = '';
+			if(cell.student && typeof cell.student.difficulty === 'number'){
+				const lvl = Math.max(1, Math.min(3, cell.student.difficulty|0));
+				diffClass = ' diff-'+lvl;
+			}
+			d.className='cell'+(cell.used?' used':'')+diffClass;
+			d.textContent=cell.number;
+			d.tabIndex= cell.used ? -1 : 0;
+			d.setAttribute('data-number', cell.number);
+			if(!cell.used){
+				d.addEventListener('click', ()=>openCell(cell));
+				d.addEventListener('keydown', e=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); openCell(cell); } });
+			}
+			return d;
+		}
+
+		// Build grid (first 30 cells)
+		function renderGrid(){
+			gridEl.innerHTML='';
+			state.cells.slice(0,30).forEach(cell=>{
+				gridEl.appendChild(buildCellElement(cell));
+			});
+			// Also render extra cell #31 in its slot
+			renderExtraCell();
+		}
+
+		function renderExtraCell(){
+			const slot = document.getElementById('extraCellSlot');
+			if(!slot) return;
+			slot.innerHTML = '';
+			const cell31 = state.cells[30]; // index 30 => number 31
+			if(cell31){
+				slot.appendChild(buildCellElement(cell31));
+			}
+		}
+
+			let lastFocusedElement = null;
+			function openCell(cell){
+				if(cell.used) return;
+				lastFocusedElement = document.querySelector('.cell[data-number="'+cell.number+'"]');
+				state.currentCell = cell;
+				state.modalStep = 0;
+				updateModalContent();
+				showModal();
+			}
+
+		function showModal(){
+			modalEl.classList.add('visible');
+			modalEl.focus();
+			document.body.classList.add('curtains-hidden');
+		}
+			function hideModal(){
+				modalEl.classList.remove('visible');
+				document.body.classList.remove('curtains-hidden');
+				state.currentCell = null;
+				if(lastFocusedElement && !lastFocusedElement.classList.contains('used')){
+					lastFocusedElement.focus();
+				}
+				lastFocusedElement = null;
+			}
+
+		function cycleModal(){
+			if(!state.currentCell) return;
+			if(state.modalStep === 0){
+				// Show photo
+				state.modalStep = 1;
+			} else if(state.modalStep === 1){
+				// Show name
+				state.modalStep = 2;
+			} else {
+				// Close & mark used, rotate teacher
+				state.currentCell.used = true;
+				if(state.currentCell.student){ /* could update stats */ }
+				hideModal();
+				renderGrid();
+				rotateTeacher();
+				return;
+			}
+			updateModalContent();
+		}
+
+		function updateModalContent(){
+			const cell = state.currentCell;
+			if(!cell){ return; }
+			const student = cell.student;
+			if(state.modalStep === 0){
+				// initial: hide photo, hide name
+				studentPhotoEl.style.display='none';
+				// Clear previous photo reference to prevent showing stale image later
+				studentPhotoEl.removeAttribute('src');
+				studentPhotoEl.alt = 'Foto žiaka';
+				studentNameEl.textContent = student? student.name : '';
+				studentNameEl.classList.add('hiddenName');
+				studentNameEl.style.display='none';
+				// show difficulty badge before photo
+				const diff = student && typeof student.difficulty === 'number' ? student.difficulty : 1;
+				const bodLabel = diff === 1 ? ' bod' : ' body';
+				difficultyBadgeEl.textContent = diff + bodLabel;
+				difficultyBadgeEl.setAttribute('data-level', String(diff));
+				difficultyBadgeEl.style.display = 'flex';
+				modalEl.classList.remove('photo-full');
+			} else if(state.modalStep === 1){
+				// show photo only
+				if(student && student.url){
+					studentPhotoEl.src = student.url;
+					studentPhotoEl.alt = 'Foto žiaka'; // nezobrazuj meno v alt pred odhalením
+					studentPhotoEl.style.display='block';
+				} else {
+					// No valid photo: keep hidden (or could show placeholder)
+					studentPhotoEl.style.display='none';
+					studentPhotoEl.removeAttribute('src');
+				}
+				studentNameEl.classList.add('hiddenName');
+				studentNameEl.style.display='none'; // úplne skryť v kroku fotky
+				difficultyBadgeEl.style.display = 'none';
+				// Activate fullscreen photo layout only if we have a valid photo
+				if(student && student.url){
+					modalEl.classList.add('photo-full');
+				} else {
+					modalEl.classList.remove('photo-full');
+				}
+			} else if(state.modalStep === 2){
+				// overlay name over fullscreen photo
+				if(student && student.url){
+					modalEl.classList.add('photo-full');
+					studentPhotoEl.style.display='block';
+					studentPhotoEl.alt = 'Foto: '+student.name;
+				} else {
+					studentPhotoEl.style.display='none';
+					modalEl.classList.remove('photo-full');
+				}
+				studentNameEl.textContent = student? student.name : '';
+				studentNameEl.classList.remove('hiddenName');
+				studentNameEl.style.display='block';
+				studentNameEl.classList.add('overlay-name');
+				difficultyBadgeEl.style.display = 'none';
+			}
+		}
+
+		modalEl.addEventListener('click', (e)=>{
+			if(e.target===modalEl) { cycleModal(); }
+		});
+		document.getElementById('modalContent').addEventListener('click', (e)=>{
+			// Cycle when clicking content area
+			cycleModal();
+		});
+		document.addEventListener('keydown', e=>{
+			if(e.key==='Escape' && modalEl.classList.contains('visible')){ hideModal(); }
+		});
+
+	// Scoring helpers + keyboard shortcuts (1/2 add; 3/4 subtract)
+	function adjustScore(teacherIdx, delta){
+		if(teacherIdx < 0 || teacherIdx >= state.teachers.length) return;
+		state.teachers[teacherIdx].score += delta;
+		renderTeachers();
+		announceScore(teacherIdx);
+		// Trigger fullscreen overlay animation with updated score
+		showScoreOverlay(teacherIdx, delta);
+	}
+		// Global keyboard handling: ignore when typing into inputs
+		document.addEventListener('keydown', (e)=>{
+			const ae = document.activeElement;
+			if(ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return;
+			if(e.ctrlKey || e.metaKey || e.altKey) return;
+			switch(e.key){
+				case '1': adjustScore(0, +1); break;
+				case '2': adjustScore(1, +1); break;
+				case '3': adjustScore(0, -1); break;
+				case '4': adjustScore(1, -1); break;
+				default: break;
+			}
+		});
+
+		// Teacher handling
+		function renderTeachers(){
+			const teacherEls = document.querySelectorAll('.teacher');
+			teacherEls.forEach((el,i)=>{
+				el.classList.toggle('active', i===state.activeTeacher);
+				// Remove any existing turn badge and do not display it
+				const badge = el.querySelector('.turnBadge');
+				if(badge) badge.remove();
+				// Score display
+				el.querySelector('[data-score]').textContent = state.teachers[i].score;
+				// Name display
+				const nameEl = el.querySelector('.teacher-name');
+				if(nameEl && nameEl.textContent !== state.teachers[i].name){ nameEl.textContent = state.teachers[i].name; }
+			});
+		}
+		function rotateTeacher(){
+				if(modalEl.classList.contains('visible')) return; // do not rotate mid-question
+				state.activeTeacher = (state.activeTeacher+1)%state.teachers.length;
+				renderTeachers();
+				announceTurn();
+		}
+		// Klik na blok učiteľa zmení aktívneho (ak modal nie je otvorený)
+		teacherContainer.addEventListener('click', (e)=>{
+			const t = e.target.closest('.teacher');
+			if(!t || modalEl.classList.contains('visible')) return;
+			const idx = parseInt(t.getAttribute('data-index'),10);
+			if(!isNaN(idx) && idx !== state.activeTeacher){
+				state.activeTeacher = idx;
+				renderTeachers();
+				announceTurn();
+			}
+		});
+		// Polia pre vlastné mená učiteľov boli odstránené; používa sa predvolené nastavenie.
+		// Old score buttons removed and replaced by keyboard-aware buttons above
+
+		// File handling
+			// Auto-pokus načítať JSON dátový súbor pri štarte (ticho zlyhá)
+
+				async function loadStudentsFromJson(){
+					try {
+						const res = await fetch('./data/students.json', {cache:'no-store'});
+						if(!res.ok){
+							if(res.status === 404){ console.info('students.json nenájdený – pokračujem bez dát'); return; }
+							throw new Error('HTTP '+res.status);
+						}
+					const list = await res.json();
+					if(!Array.isArray(list)) throw new Error('JSON musí byť pole objektov');
+					state.students = list.map(item=>({
+						name: item.name||'',
+						number: item.number,
+						// Ak je photo neprázdny reťazec, ber ho (http/https, relative, data URI), inak prázdny
+						url: (typeof item.photo === 'string' && item.photo.trim()!=='') ? item.photo.trim() : '',
+						difficulty: (typeof item.difficulty === 'number' && item.difficulty >=1 && item.difficulty <=3) ? item.difficulty : (Math.floor(Math.random()*3)+1)
+					}));
+					mapStudentsToCells();
+					announceLoad(list.length);
+				} catch(err){
+						console.warn('Chyba načítania JSON:', err.message);
+				}
+			}
+
+		function mapStudentsToCells(){
+			// Assign students to cells by student.number if defined else next free
+			// Clear existing assignments first
+			state.cells.forEach(c=> c.student = null);
+			const unspecified = [];
+			state.students.forEach(st=>{
+						if(st.number && st.number>=1 && st.number<=state.cells.length){
+							const cell = state.cells[st.number-1];
+					if(!cell.student) cell.student = st; else unspecified.push(st);
+				} else {
+					unspecified.push(st);
+				}
+			});
+			// Fill remaining cells sequentially
+			state.cells.forEach(cell=>{
+				if(!cell.student && unspecified.length){ cell.student = unspecified.shift(); }
+			});
+			// Update used class remains
+			renderGrid();
+		}
+
+			function showTemporaryMessage(text, type){
+				let box = document.getElementById('flashBox');
+				if(!box){
+					box = document.createElement('div');
+					box.id='flashBox';
+					box.style.position='fixed';
+					box.style.top='1rem';
+					box.style.left='50%';
+					box.style.transform='translateX(-50%)';
+					box.style.padding='0.75rem 1.2rem';
+					box.style.borderRadius='0.75rem';
+					box.style.fontWeight='600';
+					box.style.zIndex='2000';
+					box.style.backdropFilter='blur(6px)';
+					box.style.boxShadow='0 6px 18px rgba(0,0,0,.4)';
+					document.body.appendChild(box);
+				}
+				box.textContent = text;
+				box.style.background = type==='error' ? 'linear-gradient(135deg,#eb3349,#f45c43)' : 'linear-gradient(135deg,#43b749,#6edc73)';
+				box.style.color = '#fff';
+				box.style.opacity='1';
+				setTimeout(()=>{ box.style.transition='opacity .5s'; box.style.opacity='0'; }, 2500);
+			}
+			function announceLoad(count){
+				const live = document.getElementById('liveRegion');
+				live.textContent = 'Načítaných študentov: '+count;
+				showTemporaryMessage('Načítaných '+count+' študentov', 'info');
+			}
+
+				function announceScore(idx){
+					const live = document.getElementById('liveRegion');
+					live.textContent = state.teachers[idx].name + ' skóre: ' + state.teachers[idx].score;
+				}
+				function announceTurn(){
+					const live = document.getElementById('liveRegion');
+					live.textContent = 'Na rade: ' + state.teachers[state.activeTeacher].name;
+				}
+
+		function showScoreOverlay(teacherIdx, delta){
+			if(!scoreOverlay) return;
+			const textEl = scoreOverlay.querySelector('.overlay-text');
+			if(!textEl) return;
+			// Show the current total score of the affected teacher
+			const currentScore = (teacherIdx >= 0 && teacherIdx < state.teachers.length)
+				? state.teachers[teacherIdx].score
+				: 0;
+			textEl.textContent = String(currentScore);
+			scoreOverlay.classList.remove('show','add','sub');
+			scoreOverlay.classList.add(delta >= 0 ? 'add' : 'sub');
+			// restart animation
+			void scoreOverlay.offsetWidth;
+			scoreOverlay.classList.add('show');
+			setTimeout(()=>{ scoreOverlay.classList.remove('show'); }, 1000);
+		}
+
+		// Fullscreen toggle
+			function toggleFullscreen(){
+				if(!document.fullscreenElement){
+					document.documentElement.requestFullscreen?.();
+				} else {
+					document.exitFullscreen?.();
+				}
+			}
+			const fullscreenFloatBtn = document.getElementById('fullscreenFloatBtn');
+			fullscreenFloatBtn.addEventListener('click', toggleFullscreen);
+			document.addEventListener('fullscreenchange', ()=>{
+				// Adjust opacity to indicate state
+				if(document.fullscreenElement){
+					fullscreenFloatBtn.style.opacity = '.9';
+					fullscreenFloatBtn.textContent = '✕';
+					fullscreenFloatBtn.title = 'Ukončiť fullscreen';
+				} else {
+					fullscreenFloatBtn.style.opacity = '.35';
+					fullscreenFloatBtn.textContent = '⛶';
+					fullscreenFloatBtn.title = 'Fullscreen';
+				}
+			});
+
+		// Init
+		renderGrid();
+		renderTeachers();
+		// Pokus o načítanie študentov (ak súbor ešte neexistuje, zobrazí sa nenápadná správa v konzole)
+		loadStudentsFromJson();
+	})();
+	</script>
+</body>
+</html>
