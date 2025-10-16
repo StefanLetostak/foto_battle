@@ -1,0 +1,26 @@
+[
+  {
+    "number": 1,
+    "name": "Janko Mrkvicka",
+    "photo": "./foto/001.png",
+    "difficulty": 1
+  },
+  {
+    "number": 2,
+    "name": "Marienka Lesna",
+    "photo": "./foto/002.png",
+    "difficulty": 2
+  },
+  {
+    "number": 3,
+    "name": "Fero Urban",
+    "photo": "./foto/003.png",
+    "difficulty": 3
+  },
+  {
+    "number": 31,
+    "name": "Bonus Mystery",
+    "photo": "./foto/031.png",
+    "difficulty": 3
+  }
+]
