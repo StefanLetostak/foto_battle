@@ -42,6 +42,15 @@
 	</div>
 	<!-- Fullscreen score overlay for add/subtract animations -->
 	<div id="scoreOverlay" aria-hidden="true"><div class="overlay-text"></div></div>
+	<!-- Victory overlay with confetti -->
+	<div id="victoryOverlay" aria-hidden="true">
+		<canvas id="confettiCanvas"></canvas>
+		<div class="victory-content">
+			<div class="victory-title">VÍŤAZ</div>
+			<div class="victory-name"></div>
+			<div class="victory-subtitle">🏆</div>
+		</div>
+	</div>
 		<button id="fullscreenFloatBtn" aria-label="Fullscreen" title="Fullscreen" style="position:fixed; right:.6rem; bottom:.6rem; z-index:1500; background:rgba(67,183,73,0.15); color:#fff; padding:.5rem .7rem; font-size:.7rem; border-radius:.5rem; backdrop-filter:blur(4px); box-shadow:0 2px 6px rgba(0,0,0,.3); opacity:.35; transition:.25s;">
 			⛶
 		</button>
@@ -74,7 +83,7 @@
 				diffClass = ' diff-'+lvl;
 			}
 			d.className='cell'+(cell.used?' used':'')+diffClass;
-			d.textContent=cell.number;
+			d.innerHTML = '<span class="num">'+cell.number+'</span>';
 			d.tabIndex= cell.used ? -1 : 0;
 			d.setAttribute('data-number', cell.number);
 			if(!cell.used){
@@ -218,25 +227,60 @@
 			if(e.key==='Escape' && modalEl.classList.contains('visible')){ hideModal(); }
 		});
 
+	// Queue for score animations to prevent interruption
+	const scoreAnimationQueue = [];
+	let isAnimatingScore = false;
+
 	// Scoring helpers + keyboard shortcuts (1/2 add; 3/4 subtract)
 	function adjustScore(teacherIdx, delta){
 		if(teacherIdx < 0 || teacherIdx >= state.teachers.length) return;
 		state.teachers[teacherIdx].score += delta;
 		renderTeachers();
 		announceScore(teacherIdx);
-		// Trigger fullscreen overlay animation with updated score
-		showScoreOverlay(teacherIdx, delta);
+		// Add to queue instead of showing immediately
+		scoreAnimationQueue.push({ teacherIdx, delta, score: state.teachers[teacherIdx].score });
+		processScoreAnimationQueue();
+	}
+
+	function processScoreAnimationQueue(){
+		if(isAnimatingScore || scoreAnimationQueue.length === 0) return;
+		
+		isAnimatingScore = true;
+		const { teacherIdx, delta, score } = scoreAnimationQueue.shift();
+		
+		// Show animation
+		showScoreOverlay(score, delta);
+		
+		// Wait for animation to complete before processing next
+		setTimeout(()=>{
+			scoreOverlay.classList.remove('show');
+			isAnimatingScore = false;
+			processScoreAnimationQueue();
+		}, 1200);
 	}
 		// Global keyboard handling: ignore when typing into inputs
 		document.addEventListener('keydown', (e)=>{
 			const ae = document.activeElement;
 			if(ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return;
 			if(e.ctrlKey || e.metaKey || e.altKey) return;
-			switch(e.key){
-				case '1': adjustScore(0, +1); break;
-				case '2': adjustScore(1, +1); break;
-				case '3': adjustScore(0, -1); break;
-				case '4': adjustScore(1, -1); break;
+			const k = (e.key || '').toLowerCase();
+			// Space bar to switch active teacher
+			if(e.key === ' ' && !modalEl.classList.contains('visible')){
+				e.preventDefault();
+				rotateTeacher();
+				return;
+			}
+			switch(k){
+				case '1':
+				case 'a': adjustScore(0, +1); break;
+				case '2':
+				case 's': adjustScore(1, +1); break;
+				case '3':
+				case 'd': adjustScore(0, -1); break;
+				case '4':
+				case 'f': adjustScore(1, -1); break;
+				case 'k': showVictory('Svetlana'); break;
+				case 'l': showVictory('Gabriela'); break;
 				default: break;
 			}
 		});
@@ -297,9 +341,44 @@
 					}));
 					mapStudentsToCells();
 					announceLoad(list.length);
+					// Preload all photos immediately after loading JSON
+					preloadPhotos();
 				} catch(err){
 						console.warn('Chyba načítania JSON:', err.message);
 				}
+			}
+
+			// Preload all student photos to avoid loading delays when clicking cells
+			async function preloadPhotos(){
+				const photoUrls = state.students
+					.map(s => s.url)
+					.filter(url => url && url.trim() !== '');
+				
+				if(photoUrls.length === 0) return;
+				
+				showTemporaryMessage(`Načítavam ${photoUrls.length} fotiek...`, 'info');
+				
+				let loaded = 0;
+				const promises = photoUrls.map(url => {
+					return new Promise((resolve) => {
+						const img = new Image();
+						img.onload = () => {
+							loaded++;
+							console.log(`Loaded ${loaded}/${photoUrls.length}: ${url}`);
+							resolve();
+						};
+						img.onerror = () => {
+							loaded++;
+							console.warn(`Failed to load: ${url}`);
+							resolve(); // Continue even if one fails
+						};
+						img.src = url;
+					});
+				});
+				
+				await Promise.all(promises);
+				showTemporaryMessage(`✓ Všetky fotky načítané (${loaded})`, 'info');
+				console.log('All photos preloaded successfully');
 			}
 
 		function mapStudentsToCells(){
@@ -361,21 +440,125 @@
 					live.textContent = 'Na rade: ' + state.teachers[state.activeTeacher].name;
 				}
 
-		function showScoreOverlay(teacherIdx, delta){
+		function showScoreOverlay(currentScore, delta){
 			if(!scoreOverlay) return;
 			const textEl = scoreOverlay.querySelector('.overlay-text');
 			if(!textEl) return;
-			// Show the current total score of the affected teacher
-			const currentScore = (teacherIdx >= 0 && teacherIdx < state.teachers.length)
-				? state.teachers[teacherIdx].score
-				: 0;
+			// Show the score passed from queue
 			textEl.textContent = String(currentScore);
 			scoreOverlay.classList.remove('show','add','sub');
 			scoreOverlay.classList.add(delta >= 0 ? 'add' : 'sub');
 			// restart animation
 			void scoreOverlay.offsetWidth;
 			scoreOverlay.classList.add('show');
-			setTimeout(()=>{ scoreOverlay.classList.remove('show'); }, 1000);
+			// Note: hiding is now handled by queue processor
+		}
+
+		// Victory animation with confetti
+		function showVictory(winnerName){
+			const victoryOverlay = document.getElementById('victoryOverlay');
+			const victoryNameEl = victoryOverlay.querySelector('.victory-name');
+			if(!victoryOverlay || !victoryNameEl) return;
+
+			victoryNameEl.textContent = winnerName;
+			victoryOverlay.classList.add('show');
+			
+			// Start confetti animation
+			startConfetti();
+			
+			// No auto-hide timeout - only close with 'j' key
+			// Allow J key to close
+			const closeHandler = (e) => {
+				const key = (e.key || '').toLowerCase();
+				if(key === 'j'){
+					hideVictory();
+					document.removeEventListener('keydown', closeHandler);
+				}
+			};
+			document.addEventListener('keydown', closeHandler);
+		}
+
+		function hideVictory(){
+			const victoryOverlay = document.getElementById('victoryOverlay');
+			if(!victoryOverlay) return;
+			victoryOverlay.classList.remove('show');
+			stopConfetti();
+		}
+
+		// Confetti animation
+		let confettiInterval = null;
+		const confettiParticles = [];
+
+		function startConfetti(){
+			const canvas = document.getElementById('confettiCanvas');
+			if(!canvas) return;
+			const ctx = canvas.getContext('2d');
+			canvas.width = window.innerWidth;
+			canvas.height = window.innerHeight;
+
+			// Create confetti particles
+			const colors = ['#f1c40f', '#ffeaa7', '#60a5fa', '#93c5fd', '#f87171', '#fbbf24', '#a78bfa'];
+			confettiParticles.length = 0;
+			for(let i = 0; i < 150; i++){
+				confettiParticles.push({
+					x: Math.random() * canvas.width,
+					y: Math.random() * canvas.height - canvas.height,
+					r: Math.random() * 6 + 4,
+					d: Math.random() * 10 + 5,
+					color: colors[Math.floor(Math.random() * colors.length)],
+					tilt: Math.random() * 10 - 5,
+					tiltAngle: 0,
+					tiltAngleIncrement: Math.random() * 0.1 + 0.05
+				});
+			}
+
+			// Animate confetti
+			function drawConfetti(){
+				ctx.clearRect(0, 0, canvas.width, canvas.height);
+				confettiParticles.forEach((p, i) => {
+					ctx.beginPath();
+					ctx.lineWidth = p.r / 2;
+					ctx.strokeStyle = p.color;
+					ctx.moveTo(p.x + p.tilt + p.r, p.y);
+					ctx.lineTo(p.x + p.tilt, p.y + p.tilt + p.r);
+					ctx.stroke();
+
+					// Update position
+					p.tiltAngle += p.tiltAngleIncrement;
+					p.y += (Math.cos(p.d) + 3 + p.r / 2) / 2;
+					p.x += Math.sin(p.d);
+					p.tilt = Math.sin(p.tiltAngle) * 15;
+
+					// Reset if out of bounds
+					if(p.y > canvas.height){
+						confettiParticles[i] = {
+							x: Math.random() * canvas.width,
+							y: -20,
+							r: p.r,
+							d: p.d,
+							color: p.color,
+							tilt: Math.random() * 10 - 5,
+							tiltAngle: 0,
+							tiltAngleIncrement: p.tiltAngleIncrement
+						};
+					}
+				});
+			}
+
+			confettiInterval = setInterval(drawConfetti, 33);
+		}
+
+		function stopConfetti(){
+			if(confettiInterval){
+				clearInterval(confettiInterval);
+				confettiInterval = null;
+			}
+			const canvas = document.getElementById('confettiCanvas');
+			if(canvas){
+				const ctx = canvas.getContext('2d');
+				ctx.clearRect(0, 0, canvas.width, canvas.height);
+			}
+			confettiParticles.length = 0;
 		}
 
 		// Fullscreen toggle

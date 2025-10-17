@@ -184,12 +184,32 @@ main {
   color: #fff; 
   cursor: url('./cursor/cursor.svg') 8 8, pointer; 
   transition: .3s;
-  box-shadow: 0 3px 12px rgba(86, 171, 47, 0.35);
+  box-shadow: 0 3px 12px rgba(241, 196, 15, 0.35);
   text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
   overflow:hidden;
-  animation: pulseCell 2.8s linear infinite;
-  will-change: box-shadow, border-width;
+  animation: pulseCell 2.6s ease-in-out infinite;
+  will-change: box-shadow;
   padding-bottom: 0.5rem;
+}
+/* Number span to allow independent animation without size change */
+.cell .num {
+  position: relative;
+  z-index: 1;
+  display: inline-block;
+  line-height: 1;
+  animation: numGlow 3s ease-in-out infinite;
+}
+.cell.used .num { animation: none; }
+
+@keyframes numGlow {
+  0%, 100% {
+    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+    filter: none;
+  }
+  50% {
+    text-shadow: 0 4px 14px rgba(0, 0, 0, 0.8);
+    filter: drop-shadow(0 0 10px rgba(241,196,15,0.35));
+  }
 }
 /* Difficulty-based coloring overrides */
 .cell.diff-1 { background: var(--cell-blue-1) !important; color:#0b2a6b; text-shadow: 0 1px 2px rgba(255,255,255,0.7); }
@@ -204,17 +224,16 @@ main {
   pointer-events: none;
   z-index: 0;
   opacity: 0.0;
-  background: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.18), rgba(168,224,99,0.28) 35%, rgba(168,224,99,0.0) 70%);
+  background: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.20), rgba(241,196,15,0.34) 35%, rgba(241,196,15,0.0) 70%);
   transform: scale(0.96);
   transform-origin: center;
   animation: cellPulse 2.6s ease-in-out infinite;
 }
 @keyframes pulseCell {
-  0%   { box-shadow: 0 3px 12px rgba(86, 171, 47, 0.32); border-width: 2px; }
-  25%  { box-shadow: 0 6px 20px rgba(86, 171, 47, 0.45); border-width: 2.5px; }
-  50%  { box-shadow: 0 12px 36px rgba(86, 171, 47, 0.62); border-width: 3px; }
-  75%  { box-shadow: 0 6px 20px rgba(86, 171, 47, 0.45); border-width: 2.5px; }
-  100% { box-shadow: 0 3px 12px rgba(86, 171, 47, 0.32); border-width: 2px; }
+  0%   { box-shadow: 0 3px 12px rgba(241, 196, 15, 0.28); }
+  40%  { box-shadow: 0 10px 28px rgba(241, 196, 15, 0.55); }
+  60%  { box-shadow: 0 14px 40px rgba(241, 196, 15, 0.70); }
+  100% { box-shadow: 0 3px 12px rgba(241, 196, 15, 0.28); }
 }
 @keyframes cellPulse {
   0%   { opacity: 0.0; transform: scale(0.96); }
@@ -223,8 +242,7 @@ main {
   100% { opacity: 0.0; transform: scale(0.96); }
 }
 /* Striedanie farieb polí */
-/* Remove nth-child color alternation in favor of difficulty colors */
-.cell:nth-child(4n+1), .cell:nth-child(4n+2), .cell:nth-child(4n+3), .cell:nth-child(4n+4) { box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15); }
+/* Removed old nth-child box-shadow override to allow pulse animation to be visible */
 .cell::before {
   content: '';
   position: absolute;
@@ -291,7 +309,7 @@ main {
   justify-content: center;
   min-width: var(--cell-size);
   min-height: var(--cell-size);
-  transform: translateY(calc(var(--grid-gap) * -2));
+  transform: translateY(calc(var(--grid-gap) * -2.5));
 }
 #extraCellSlot .cell {
   width: var(--cell-size);
@@ -324,7 +342,7 @@ main {
   display: block;
   width: 100%;
   text-align: center;
-  font-size: clamp(1.3rem, 2.9vw, 1.7rem);
+  font-size: clamp(1.8rem, 3.5vw, 2.4rem);
   font-weight: 800;
   letter-spacing: .02em;
   text-transform: uppercase;
@@ -426,9 +444,83 @@ footer {
 }
 @keyframes overlayBoom {
   0% { transform: scale(0.4); opacity: 0; }
-  40% { transform: scale(1.08); opacity: 1; }
-  60% { transform: scale(1.02); opacity: 1; }
-  100% { transform: scale(1); opacity: 0; }
+  25% { transform: scale(1.08); opacity: 1; }
+  35% { transform: scale(1.02); opacity: 1; }
+  85% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(0.98); opacity: 0; }
+}
+/* Victory overlay with confetti */
+#victoryOverlay {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, rgba(0, 0, 0, 0.75) 0%, rgba(37, 99, 235, 0.5) 100%);
+  backdrop-filter: blur(12px);
+  z-index: 3000;
+  opacity: 0;
+  transition: opacity 0.5s ease;
+}
+#victoryOverlay.show {
+  display: flex;
+  opacity: 1;
+}
+#confettiCanvas {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+.victory-content {
+  position: relative;
+  z-index: 2;
+  text-align: center;
+  animation: victoryReveal 1s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.victory-title {
+  font-size: clamp(3rem, 8vw, 6rem);
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  background: linear-gradient(135deg, #ffeaa7 0%, #f1c40f 50%, #ffeaa7 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 1rem;
+  text-shadow: 0 4px 20px rgba(241, 196, 15, 0.6);
+  filter: drop-shadow(0 4px 20px rgba(241, 196, 15, 0.6));
+}
+.victory-name {
+  font-size: clamp(5rem, 14vw, 12rem);
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #ffffff;
+  text-shadow: 
+    0 0 40px rgba(241, 196, 15, 0.8),
+    0 0 80px rgba(241, 196, 15, 0.6),
+    0 6px 30px rgba(0, 0, 0, 0.8);
+  margin: 1rem 0;
+  animation: victoryPulse 2s ease-in-out infinite;
+}
+.victory-subtitle {
+  font-size: clamp(4rem, 10vw, 8rem);
+  margin-top: 1rem;
+  filter: drop-shadow(0 4px 20px rgba(241, 196, 15, 0.8));
+  animation: victoryRotate 3s ease-in-out infinite;
+}
+@keyframes victoryReveal {
+  0% { opacity: 0; transform: scale(0.5) translateY(100px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes victoryPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+@keyframes victoryRotate {
+  0%, 100% { transform: rotate(-10deg); }
+  50% { transform: rotate(10deg); }
 }
 #modal.visible { display: flex; }
 #modalContent { 
@@ -463,6 +555,12 @@ footer {
   border-radius: .75rem; 
   box-shadow: 0 0 0 4px rgba(147, 197, 253, 0.55), 0 8px 30px rgba(0, 0, 0, 0.6);
   transition: .3s;
+  /* Add photo reveal animation */
+  animation: photoReveal 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes photoReveal {
+  0% { opacity: 0; transform: scale(0.85) translateY(30px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
 }
 #modal.photo-full #modalContent { padding: 0; }
 #modal.photo-full #modalContent { position: relative; }
@@ -490,6 +588,12 @@ footer {
   -webkit-background-clip: border-box;
   filter: none;
   opacity: 1;
+  /* Add name reveal animation */
+  animation: nameReveal 0.7s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes nameReveal {
+  0% { opacity: 0; transform: translateX(-50%) translateY(50px) scale(0.9); }
+  100% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
 }
 #modal.photo-full #modalContent .name-bg-glow::before {
   content: '';
@@ -509,6 +613,8 @@ footer {
   object-fit: contain;
   border-radius: .75rem;
   box-shadow: 0 0 0 10px rgba(147,197,253,0.35), 0 0 70px rgba(0,0,0,0.7);
+  /* Fullscreen photo also gets reveal animation */
+  animation: photoReveal 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 #modal img:hover {
   box-shadow: 0 0 0 4px rgba(168, 224, 99, 0.7), 0 12px 40px rgba(247, 119, 55, 0.4);
@@ -542,6 +648,12 @@ footer {
   justify-content: center;
   text-align: center;
   font-size: clamp(3rem, 11vw, 9rem);
+  /* Add reveal animation */
+  animation: difficultyReveal 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes difficultyReveal {
+  0% { opacity: 0; transform: scale(0.7); }
+  100% { opacity: 1; transform: scale(1); }
 }
 .difficulty-badge[data-level="1"] {
   background: rgba(191, 219, 254, 0.7);
